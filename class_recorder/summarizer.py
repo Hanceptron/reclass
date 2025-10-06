@@ -7,45 +7,50 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from .config import config
 from .utils import prefilter_transcript
 
-SUMMARY_PROMPT = """Analyze this lecture transcript and create a comprehensive Obsidian-formatted summary.
+NARRATIVE_PROMPT = """You are Emirhan's classroom scribe. Rewrite the transcript into a polished lesson narrative without inventing facts.
 
-## Structure Requirements:
+Output requirements:
+- Title the document `# Classroom Narrative`.
+- Start with a short situational overview (2-3 sentences) in a `> [!note]` callout.
+- Organize the remaining content chronologically with `##` headings containing timestamps (e.g., `## [HH:MM:SS] Topic`).
+- Highlight definitions or formulas with `> [!important]` callouts, and include short bullet lists where the instructor enumerated items.
+- Preserve technical language, examples, and problem statements; paraphrase only for clarity.
+- Finish with a `## Instructor Side Comments` section capturing offhand remarks, logistics, or humor if present. If none, write `- None mentioned.`
 
-### 1. Overview (2-3 sentences)
-Brief description of the lecture's main topic and objectives.
-
-### 2. Key Concepts
-Main theories, definitions, and principles covered. Use callouts:
-> [!important] Core Concept
-> Brief explanation
-
-### 3. Important Examples & Case Studies
-Concrete examples discussed with brief explanations.
-
-### 4. Key Takeaways
-3-5 most critical points students should remember.
-
-### 5. Discussion Questions (if any mentioned)
-Questions posed to students or for review.
-
-### 6. Action Items
-- Assignments mentioned
-- Readings assigned  
-- Exam topics referenced
-- Practice problems suggested
-
-## Formatting Rules:
-- Use Obsidian callouts: `> [!note]`, `> [!important]`, `> [!tip]`, `> [!warning]`
-- Include timestamps in [HH:MM:SS] format for topic transitions
-- Bold key terms on first mention
-- Use tables for comparisons or structured data
-- Create Mermaid diagrams for complex relationships (if applicable)
-- Use proper Markdown headers (##, ###)
-
-## Transcript:
+Transcript:
 {transcript}
+"""
 
-Create the summary now:"""
+COMPANION_PROMPT = """You are Emirhan's battle companion for this course. Using the classroom narrative and transcript, extract actionable guidance.
+
+Produce Obsidian markdown with these sections (use them exactly):
+
+## Mission Control
+- One paragraph summarizing what this class session was really about.
+
+## Key Concepts & Definitions
+- Bullet list. Each bullet: **Term** — concise definition. Include timestamps when possible.
+
+## Assignments, Projects, Exams
+- Use task list `- [ ]` items. Specify deliverables, due dates, submission platforms, partner/individual requirements, grading weight, and any rubrics or hints mentioned. If none were stated, add `- [ ] Confirm: no assignments announced.`
+
+## Study & Revision Checklist
+- Grouped checklists for theory, practice, and admin (three subheadings). Under each, add `- [ ]` items that tell Emirhan exactly what to review, code, or submit. Reference lecture material, textbook sections, or practice problems when mentioned. Add estimated time if implied.
+
+## Risk & Follow-ups
+- List potential pitfalls, questions to clarify next class, or campus admin tasks (like office hours, lab sign-ups). Mark anything urgent with `> [!warning]` callouts.
+
+## Next Moves
+- 3 bullet points starting with action verbs (e.g., “Schedule…”, “Email…”, “Prototype…”).
+
+Inputs you may reference:
+- Classroom Narrative:
+{narrative}
+- Filtered Transcript:
+{transcript}
+- Raw Transcript (use for verification only):
+{raw_transcript}
+"""
 
 class LLMSummarizer:
     def __init__(self):
@@ -64,39 +69,40 @@ class LLMSummarizer:
     def summarize(self, transcript_text, course_folder, base_name, metadata=None):
         """Generate summary from transcript"""
         print(f"\n🤖 Generating summary with {self.model}...")
-        
+
         filtered_transcript = prefilter_transcript(transcript_text)
 
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {
-                    "role": "user",
-                    "content": SUMMARY_PROMPT.format(transcript=filtered_transcript)
-                }
-            ],
-            max_tokens=self.max_tokens,
-            temperature=self.temperature
+        narrative = self._generate_text(
+            prompt=NARRATIVE_PROMPT.format(transcript=filtered_transcript)
         )
-        
-        summary = response.choices[0].message.content
-        
-        # Add frontmatter
+
+        companion = self._generate_text(
+            prompt=COMPANION_PROMPT.format(
+                transcript=filtered_transcript,
+                narrative=narrative,
+                raw_transcript=transcript_text
+            )
+        )
+
         frontmatter = self._create_frontmatter(base_name, metadata)
-        full_markdown = f"{frontmatter}\n\n{summary}"
-        
-        # Save summary
-        summary_path = Path(course_folder) / f"{base_name}.md"
-        with open(summary_path, 'w') as f:
-            f.write(full_markdown)
-        
-        print(f"✅ Summary saved: {summary_path}")
-        
+        date_str = self._extract_date(base_name)
+
+        narrative_path = Path(course_folder) / f"Classroom output {date_str}.md"
+        companion_path = Path(course_folder) / f"Guide {date_str}.md"
+
+        narrative_path.write_text(f"{frontmatter}\n\n{narrative}")
+        companion_path.write_text(f"{frontmatter}\n\n{companion}")
+
+        print(f"✅ Narrative saved: {narrative_path}")
+        print(f"✅ Guide saved: {companion_path}")
+
         return {
-            'summary_path': str(summary_path),
-            'summary': summary
+            'narrative_path': str(narrative_path),
+            'companion_path': str(companion_path),
+            'narrative': narrative,
+            'companion': companion
         }
-    
+
     def _create_frontmatter(self, base_name, metadata):
         """Create Obsidian frontmatter"""
         date_parts = base_name.split('-')[0:3]
@@ -110,10 +116,24 @@ class LLMSummarizer:
         seconds = int(duration % 60)
         
         duration_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-        
+        tag_slug = course.lower().replace(' ', '-')
+
         return f"""---
 date: {date_str}
 course: {course}
 duration: {duration_str}
-tags: [lecture, {course.lower()}]
+tags: [lecture, {tag_slug}]
 ---"""
+
+    def _extract_date(self, base_name):
+        parts = base_name.split('-')[0:3]
+        return '-'.join(parts) if len(parts) == 3 else base_name
+
+    def _generate_text(self, prompt: str) -> str:
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=self.max_tokens,
+            temperature=self.temperature
+        )
+        return response.choices[0].message.content

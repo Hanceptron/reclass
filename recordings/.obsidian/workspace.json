@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "test101/2025-10-04-AI-course.md",
+                "file": "test101/Gemini Guide 2025-10-04.md",
                 "mode": "preview",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "2025-10-04-AI-course"
+              "title": "Gemini Guide 2025-10-04"
             }
           }
         ]
@@ -94,7 +94,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "test101/2025-10-04-AI-course.md",
+                "file": "test101/Gemini Guide 2025-10-04.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -104,7 +104,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "Backlinks for 2025-10-04-AI-course"
+              "title": "Backlinks for Gemini Guide 2025-10-04"
             }
           },
           {
@@ -113,12 +113,12 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "test101/2025-10-04-AI-course.md",
+                "file": "test101/Gemini Guide 2025-10-04.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "Outgoing links from 2025-10-04-AI-course"
+              "title": "Outgoing links from Gemini Guide 2025-10-04"
             }
           },
           {
@@ -142,13 +142,13 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "test101/2025-10-04-AI-course.md",
+                "file": "test101/Gemini Guide 2025-10-04.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "Outline of 2025-10-04-AI-course"
+              "title": "Outline of Gemini Guide 2025-10-04"
             }
           }
         ]
@@ -169,10 +169,12 @@
       "bases:Create new base": false
     }
   },
-  "active": "db8082735d5b1940",
+  "active": "e37b6fcc077d911e",
   "lastOpenFiles": [
-    "test101/2025-10-04-AI-course.m4a",
+    "test101/Gemini Classroom output 2025-10-04.md",
     "test101/2025-10-04-AI-course.md",
+    "test101/Gemini Guide 2025-10-04.md",
+    "test101/2025-10-04-AI-course.m4a",
     "test101/Test 1.md"
   ]
 }
