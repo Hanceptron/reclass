@@ -1,0 +1,2 @@
+[console_scripts]
+recorder = class_recorder.cli:cli

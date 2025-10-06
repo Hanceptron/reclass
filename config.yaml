@@ -1,0 +1,20 @@
+recording:
+  sample_rate: 16000
+  channels: 1
+  format: "m4a"
+  bitrate: "96k"
+  
+transcription:
+  model: "whisper-1"
+  language: "en"  # or null for auto-detect
+  response_format: "verbose_json"  # for timestamps
+  temperature: 0  # deterministic output
+  
+summarization:
+  model: "google/gemini-2.5-flash"
+  max_tokens: 2000
+  temperature: 0.3
+  
+storage:
+  recordings_dir: "./recordings"
+  temp_dir: "./temp"

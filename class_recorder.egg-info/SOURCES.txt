@@ -1,0 +1,15 @@
+README.md
+pyproject.toml
+class_recorder/__init__.py
+class_recorder/cli.py
+class_recorder/config.py
+class_recorder/recorder.py
+class_recorder/summarizer.py
+class_recorder/transcriber.py
+class_recorder/utils.py
+class_recorder.egg-info/PKG-INFO
+class_recorder.egg-info/SOURCES.txt
+class_recorder.egg-info/dependency_links.txt
+class_recorder.egg-info/entry_points.txt
+class_recorder.egg-info/requires.txt
+class_recorder.egg-info/top_level.txt
