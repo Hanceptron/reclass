@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "stanford_ai/stanford_ai-structured.md",
+                "file": "Untitled.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "stanford_ai-structured"
+              "title": "Untitled"
             }
           }
         ]
@@ -94,7 +94,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "stanford_ai/stanford_ai-structured.md",
+                "file": "Untitled.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -104,7 +104,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "Backlinks for stanford_ai-structured"
+              "title": "Backlinks for Untitled"
             }
           },
           {
@@ -113,12 +113,12 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "stanford_ai/stanford_ai-structured.md",
+                "file": "Untitled.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "Outgoing links from stanford_ai-structured"
+              "title": "Outgoing links from Untitled"
             }
           },
           {
@@ -142,13 +142,13 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "stanford_ai/stanford_ai-structured.md",
+                "file": "Untitled.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "Outline of stanford_ai-structured"
+              "title": "Outline of Untitled"
             }
           }
         ]
@@ -171,11 +171,13 @@
   },
   "active": "db8082735d5b1940",
   "lastOpenFiles": [
-    "stanford_ai/Transcribe stanford_ai.md",
-    "stanford_ai/Classroom output stanford_ai.md",
     "stanford_ai/Guide stanford_ai.md",
-    "stanford_ai/stanford_ai.m4a",
+    "Untitled.md",
+    "stanford_ai/Professor stanford_ai.md",
+    "stanford_ai/Classroom output stanford_ai.md",
     "stanford_ai/stanford_ai-structured.md",
+    "stanford_ai/Transcribe stanford_ai.md",
+    "stanford_ai/stanford_ai.m4a",
     "cs50_ai_test/Guide cs50.md",
     "stanford_ai/stanford_ai_timestamps.json",
     "stanford_ai/stanford_ai.txt",

@@ -2,7 +2,7 @@
 
 import re
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, List
 
 
 def ensure_directory(path):
@@ -79,3 +79,38 @@ def prefilter_transcript(text: str) -> str:
         cleaned.append(stripped)
 
     return "\n".join(cleaned) if cleaned else text
+
+
+def chunk_text(text: str, max_chars: int, overlap_paragraphs: int = 0) -> List[str]:
+    """Split text into paragraph-preserving chunks."""
+    if max_chars <= 0:
+        return [text]
+
+    paragraphs = [para.strip() for para in text.split('\n\n') if para.strip()]
+    if not paragraphs:
+        return [text.strip()]
+
+    chunks: List[str] = []
+    current: List[str] = []
+    current_len = 0
+
+    def paragraph_length(paragraph: str) -> int:
+        return len(paragraph) + 2  # account for separator
+
+    for paragraph in paragraphs:
+        para_len = paragraph_length(paragraph)
+        if current and current_len + para_len > max_chars:
+            chunks.append('\n\n'.join(current))
+            if overlap_paragraphs > 0:
+                current = current[-overlap_paragraphs:]
+                current_len = sum(paragraph_length(p) for p in current)
+            else:
+                current = []
+                current_len = 0
+        current.append(paragraph)
+        current_len += para_len
+
+    if current:
+        chunks.append('\n\n'.join(current))
+
+    return chunks

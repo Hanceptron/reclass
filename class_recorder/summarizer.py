@@ -1,65 +1,75 @@
 """LLM summarization using OpenRouter"""
+import json
+from collections import OrderedDict
 from pathlib import Path
 
 from openai import OpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from .config import config
-from .utils import build_frontmatter, extract_date_fragment
+from .utils import build_frontmatter, chunk_text, extract_date_fragment
 
-NARRATIVE_PROMPT = """You are Emirhan's private tutor. Rewrite the raw lecture into a polished lesson, keeping every factual detail.
+NARRATIVE_CHUNK_PROMPT = '''You are Emirhan's private tutor capturing a lecture chunk-by-chunk.
+Chunk {chunk_index}/{total_chunks}.
+Previously covered headings:
+{prior_topics}
 
-Requirements:
-- Title the document `# Classroom Lesson Narrative`.
-- Start with a `> [!note] Context` callout summarizing the class setting and goals in 2-3 sentences.
-- Present the session chronologically using sections like `## [HH:MM:SS] Topic`. If the topic is unclear, craft a concise descriptive title.
-- Within each section, paraphrase the instructor clearly without omitting examples, equations, or problem statements. Use bullet lists when the speaker enumerates items.
-- Use `> [!important]` callouts for definitions, formulas, or rules exactly as stated.
-- Preserve student questions, instructor answers, and anecdotes (rewrite only for grammar and flow).
-- Conclude with `## Logistics & Side Remarks` capturing reminders, humor, or admin notes. If none exist, write `- None mentioned.`
+{context_instruction}
 
-Transcript:
-{transcript}
-"""
+Rules:
+- Preserve chronological order within this chunk only.
+- Prefer headings like `## [HH:MM:SS] Topic` when timestamps exist; otherwise craft a clear descriptive heading.
+- Use `> [!important]` callouts for definitions, formulas, or rules that matter.
+- Reproduce examples, problem statements, and student questions from this chunk.
+- Use bullet lists wherever the instructor enumerated items.
+- Do NOT repeat material already covered in earlier chunks.
 
-COMPANION_PROMPT = """You are Emirhan's nerdy study buddy. Using the transcript and tutor narrative, build a battle plan for exams and projects.
+Chunk transcript:
+"""{chunk_text}"""
 
-Output format (Obsidian markdown):
+Return Markdown only.'''
 
-## Mission Control
-Friendly paragraph explaining what the class focused on and why it matters for Emirhan.
+GUIDE_CHUNK_PROMPT = '''You are Emirhan's nerdy study buddy. Extract actionable intel chunk-by-chunk.
+Chunk {chunk_index}/{total_chunks}.
 
-## Key Concepts & Definitions
-- Bullet list. Format each bullet as `- **Term** — explanation (timestamp)`. Include precise timestamps whenever available. No filler.
+Respond ONLY with valid JSON using this schema (arrays of strings):
+{{
+  "mission_control": [],
+  "key_concepts": [],
+  "assignments": [],
+  "study_theory": [],
+  "study_practice": [],
+  "study_admin": [],
+  "exam_intel": [],
+  "risk_followups": [],
+  "next_moves": []
+}}
 
-## Assignments, Projects, Exams
-- Task list using `- [ ]`. For each task mention deliverable, due date/time, submission platform, partner rules, grading weight, and any hints the instructor gave. If nothing was announced, add `- [ ] Confirm: no assignments announced this session.`
+Keep entries concise, unique, and grounded in the chunk—no speculation.
+Use `term — explanation (timestamp)` format for key concepts when possible.
+Use `- [ ] ...` for assignments and study items, and `- ...` for next moves.
 
-## Study & Revision Checklist
-### Theory
-- [ ] Items that describe what concepts/sections to review, with timestamps or resource pointers.
-### Practice
-- [ ] Coding problems, worksheets, or exercises to work through. Mention estimated effort if implied.
-### Admin
-- [ ] Logistics (sign-ups, emails, materials to download, office hours to attend).
+Structured narrative chunk:
+"""{structured_chunk}"""
 
-## Exam Intel
-- Bulleted list calling out likely exam or quiz question angles. Explain why each topic is risky based on instructor emphasis. Use `> [!warning]` callouts for high-stakes items.
+Raw transcript chunk for verification:
+"""{raw_chunk}"""
+'''
 
-## Risk & Follow-ups
-- Bullet list of open questions, unclear instructions, or things to confirm with the professor/TA. Include relevant deadlines or office hours if mentioned.
+PROFESSOR_CHUNK_PROMPT = '''You are Emirhan's friendly professor giving a one-on-one recap.
+Chunk {chunk_index}/{total_chunks}.
+Previously addressed topics:
+{prior_topics}
 
-## Next Moves
-- Exactly three bullet points starting with action verbs (e.g., "Schedule…", "Email…", "Prototype…") that Emirhan should complete within the next 48 hours.
+Explain this chunk conversationally, highlighting intuition, transitions, and why each idea matters. Reference examples or anecdotes from the transcript. End the chunk with a reflective question or quick self-check tied to the material if appropriate.
 
-Inputs for context:
-- Tutor Narrative:
-{narrative}
-- Filtered Transcript:
-{transcript}
-- Raw Transcript (for verification only):
-{raw_transcript}
-"""
+Structured narrative chunk:
+"""{structured_chunk}"""
+
+Raw transcript chunk for verification:
+"""{raw_chunk}"""
+
+Return Markdown paragraphs (include a `## Segment {chunk_index}` heading).'''
 
 
 class LLMSummarizer:
@@ -71,26 +81,22 @@ class LLMSummarizer:
         self.model = config.get('summarization.model', 'google/gemini-2.5-flash')
         self.max_tokens = config.get('summarization.max_tokens', 2000)
         self.temperature = config.get('summarization.temperature', 0.3)
-    
+        self.chunk_chars = int(config.get('summarization.chunk_chars', 4000))
+        self.chunk_overlap = int(config.get('summarization.chunk_overlap_paragraphs', 1))
+
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=4, max=60)
     )
     def summarize(self, transcript_text, course_folder, base_name, metadata=None):
-        """Generate summary from transcript"""
+        """Generate structured notes, guide, and professor recap from transcript."""
         print(f"\n🤖 Generating summary with {self.model}...")
 
-        narrative = self._generate_text(
-            prompt=NARRATIVE_PROMPT.format(transcript=transcript_text)
-        )
+        structured_chunks, transcript_chunks = self._generate_structured_chunks(transcript_text)
+        structured_body = "\n\n".join(chunk for chunk in structured_chunks if chunk).strip()
 
-        companion = self._generate_text(
-            prompt=COMPANION_PROMPT.format(
-                transcript=transcript_text,
-                narrative=narrative,
-                raw_transcript=transcript_text
-            )
-        )
+        guide_body = self._generate_guide(structured_chunks, transcript_chunks)
+        professor_body = self._generate_professor(structured_chunks, transcript_chunks)
 
         course_name = metadata.get('course', 'Unknown') if metadata else 'Unknown'
         duration = metadata.get('duration', 0) if metadata else 0
@@ -98,20 +104,143 @@ class LLMSummarizer:
         date_str = extract_date_fragment(base_name)
 
         structured_path = Path(course_folder) / f"{date_str}-structured.md"
-        companion_path = Path(course_folder) / f"Guide {date_str}.md"
+        guide_path = Path(course_folder) / f"Guide {date_str}.md"
+        professor_path = Path(course_folder) / f"Professor {date_str}.md"
 
-        structured_path.write_text(f"{frontmatter}\n\n{narrative}")
-        companion_path.write_text(f"{frontmatter}\n\n{companion}")
+        structured_path.write_text(self._compose_document(frontmatter, structured_body))
+        guide_path.write_text(self._compose_document(frontmatter, guide_body))
+        professor_path.write_text(self._compose_document(frontmatter, professor_body))
 
         print(f"✅ Structured transcript saved: {structured_path}")
-        print(f"✅ Guide saved: {companion_path}")
+        print(f"✅ Guide saved: {guide_path}")
+        print(f"✅ Professor recap saved: {professor_path}")
 
         return {
             'structured_path': str(structured_path),
-            'companion_path': str(companion_path),
-            'structured': narrative,
-            'companion': companion
+            'guide_path': str(guide_path),
+            'professor_path': str(professor_path),
+            'structured': structured_body,
+            'guide': guide_body,
+            'professor': professor_body
         }
+
+    def _compose_document(self, frontmatter: str, body: str) -> str:
+        body = body.strip()
+        if not body:
+            body = "*(No content generated.)*"
+        return f"{frontmatter}\n\n{body}\n"
+
+    def _generate_structured_chunks(self, transcript_text):
+        transcript_chunks = chunk_text(transcript_text, self.chunk_chars, self.chunk_overlap)
+        structured_chunks = []
+        recent_headings = []
+
+        total = len(transcript_chunks)
+        if total == 0:
+            return structured_chunks, transcript_chunks
+
+        for idx, chunk in enumerate(transcript_chunks, start=1):
+            prior_topics = "\n".join(recent_headings[-5:]) if recent_headings else "None yet."
+            context_instruction = (
+                "Include the heading `# Classroom Lesson Narrative` followed by a `> [!note] Context` callout summarizing the lecture goals before other sections."
+                if idx == 1 else
+                "Continue with new `##` headings only; do NOT repeat the top-level header or the context callout."
+            )
+            prompt = NARRATIVE_CHUNK_PROMPT.format(
+                chunk_index=idx,
+                total_chunks=total,
+                prior_topics=prior_topics,
+                context_instruction=context_instruction,
+                chunk_text=chunk
+            )
+            response = self._generate_text(prompt)
+            structured_chunks.append(response.strip())
+            recent_headings.extend(self._extract_headings(response))
+
+        return structured_chunks, transcript_chunks
+
+    def _generate_guide(self, structured_chunks, transcript_chunks):
+        aggregate = OrderedDict(
+            mission_control=[],
+            key_concepts=[],
+            assignments=[],
+            study_theory=[],
+            study_practice=[],
+            study_admin=[],
+            exam_intel=[],
+            risk_followups=[],
+            next_moves=[],
+        )
+
+        total = len(structured_chunks)
+        for idx, (structured_chunk, raw_chunk) in enumerate(zip(structured_chunks, transcript_chunks), start=1):
+            prompt = GUIDE_CHUNK_PROMPT.format(
+                chunk_index=idx,
+                total_chunks=total,
+                structured_chunk=structured_chunk,
+                raw_chunk=raw_chunk
+            )
+            response = self._generate_text(prompt)
+            chunk_data = self._parse_guide_json(response)
+            for key in aggregate:
+                items = chunk_data.get(key, []) if chunk_data else []
+                self._extend_unique(aggregate[key], items)
+
+        if not aggregate['assignments']:
+            aggregate['assignments'].append('- [ ] Confirm: no assignments announced this session.')
+        if not aggregate['mission_control']:
+            aggregate['mission_control'].append('No additional summary beyond structured notes.')
+
+        aggregate['next_moves'] = aggregate['next_moves'][:3]
+
+        lines = []
+        lines.append('## Mission Control')
+        lines.append("\n".join(aggregate['mission_control']).strip())
+
+        lines.append('\n## Key Concepts & Definitions')
+        lines.extend(self._ensure_bullets(aggregate['key_concepts']))
+
+        lines.append('\n## Assignments, Projects, Exams')
+        lines.extend(self._ensure_checkboxes(aggregate['assignments']))
+
+        lines.append('\n## Study & Revision Checklist')
+        lines.append('### Theory')
+        lines.extend(self._ensure_checkboxes(aggregate['study_theory']))
+        lines.append('\n### Practice')
+        lines.extend(self._ensure_checkboxes(aggregate['study_practice']))
+        lines.append('\n### Admin')
+        lines.extend(self._ensure_checkboxes(aggregate['study_admin']))
+
+        lines.append('\n## Exam Intel')
+        lines.extend(self._ensure_bullets(aggregate['exam_intel']))
+
+        lines.append('\n## Risk & Follow-ups')
+        lines.extend(self._ensure_bullets(aggregate['risk_followups']))
+
+        lines.append('\n## Next Moves')
+        lines.extend(self._ensure_bullets(aggregate['next_moves']))
+
+        return "\n".join(line for line in lines if line is not None)
+
+    def _generate_professor(self, structured_chunks, transcript_chunks):
+        outputs = []
+        recent_headings = []
+        total = len(structured_chunks)
+
+        for idx, (structured_chunk, raw_chunk) in enumerate(zip(structured_chunks, transcript_chunks), start=1):
+            prior_topics = "; ".join(recent_headings[-5:]) if recent_headings else "None yet."
+            prompt = PROFESSOR_CHUNK_PROMPT.format(
+                chunk_index=idx,
+                total_chunks=total,
+                prior_topics=prior_topics,
+                structured_chunk=structured_chunk,
+                raw_chunk=raw_chunk
+            )
+            response = self._generate_text(prompt)
+            outputs.append(response.strip())
+            recent_headings.extend(self._extract_headings(response))
+
+        return "\n\n".join(output for output in outputs if output)
 
     def _generate_text(self, prompt: str) -> str:
         response = self.client.chat.completions.create(
@@ -121,3 +250,62 @@ class LLMSummarizer:
             temperature=self.temperature
         )
         return response.choices[0].message.content
+
+    def _extract_headings(self, markdown: str):
+        headings = []
+        if not markdown:
+            return headings
+        for line in markdown.splitlines():
+            clean = line.strip()
+            if clean.startswith('##'):
+                headings.append(clean.lstrip('#').strip())
+        return headings
+
+    def _parse_guide_json(self, response: str):
+        if not response:
+            return {}
+        try:
+            return json.loads(response)
+        except json.JSONDecodeError:
+            try:
+                start = response.index('{')
+                end = response.rindex('}') + 1
+                return json.loads(response[start:end])
+            except (ValueError, json.JSONDecodeError):
+                return {}
+
+    def _extend_unique(self, target_list, items):
+        if not items:
+            return
+        for item in items:
+            cleaned = item.strip()
+            if not cleaned:
+                continue
+            if cleaned not in target_list:
+                target_list.append(cleaned)
+
+    def _ensure_bullets(self, items):
+        if not items:
+            return ['- None recorded.']
+        bullets = []
+        for item in items:
+            line = item.strip()
+            if not line:
+                continue
+            if not line.startswith('-') and not line.startswith('>'):
+                line = f"- {line}"
+            bullets.append(line)
+        return bullets if bullets else ['- None recorded.']
+
+    def _ensure_checkboxes(self, items):
+        if not items:
+            return ['- [ ] None recorded.']
+        boxes = []
+        for item in items:
+            line = item.strip()
+            if not line:
+                continue
+            if not line.startswith('- ['):
+                line = f"- [ ] {line.lstrip('-').strip()}"
+            boxes.append(line)
+        return boxes if boxes else ['- [ ] None recorded.']
