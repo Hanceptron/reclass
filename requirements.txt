@@ -1,9 +1,22 @@
-sounddevice>=0.4.6
-soundfile>=0.12.1
-numpy>=1.24.0
-scipy>=1.10.0
-openai>=1.0.0
+# Core dependencies
 click>=8.1.0
 python-dotenv>=1.0.0
 pyyaml>=6.0
-tenacity>=8.2.0
+
+# Audio processing
+sounddevice>=0.4.6
+soundfile>=0.12.1
+numpy>=1.24.0
+
+# AI/ML APIs
+openai>=1.0.0
+tenacity>=8.2.0  # For retries
+
+# Optional but recommended
+tqdm>=4.65.0  # For progress bars
+colorama>=0.4.6  # For colored CLI output
+
+# Development dependencies (optional)
+pytest>=7.0.0
+black>=23.0.0
+pylint>=2.17.0

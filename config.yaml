@@ -1,8 +1,10 @@
 recording:
-  sample_rate: 16000
-  channels: 1
-  format: "m4a"
-  bitrate: "128k"
+  # Higher quality audio settings for M3 Pro
+  sample_rate: 48000  # Studio quality (was 16000)
+  channels: 1  # Keep mono for smaller files and clarity
+  bitrate: '128k'  # Better quality (was 96k)
+  # Optional: Add noise reduction settings
+  blocksize: 2048  # Keep this for good latency
   
 transcription:
   model: "whisper-1"
@@ -11,11 +13,11 @@ transcription:
   temperature: 0  # deterministic output
   
 summarization:
-  model: "google/gemini-2.5-flash"
-  max_tokens: 2000
-  temperature: 0.3
-  chunk_chars: 4000
-  chunk_overlap_paragraphs: 1
+  model: "anthropic/claude-3.5-haiku"
+  max_tokens: 4000
+  temperature: 0.1
+  chunk_chars: 8000
+  chunk_overlap_paragraphs: 2
   
 storage:
   recordings_dir: "./recordings"
