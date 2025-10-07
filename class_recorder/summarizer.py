@@ -5,52 +5,62 @@ from openai import OpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from .config import config
-from .utils import prefilter_transcript
+from .utils import build_frontmatter, extract_date_fragment
 
-NARRATIVE_PROMPT = """You are Emirhan's classroom scribe. Rewrite the transcript into a polished lesson narrative without inventing facts.
+NARRATIVE_PROMPT = """You are Emirhan's private tutor. Rewrite the raw lecture into a polished lesson, keeping every factual detail.
 
-Output requirements:
-- Title the document `# Classroom Narrative`.
-- Start with a short situational overview (2-3 sentences) in a `> [!note]` callout.
-- Organize the remaining content chronologically with `##` headings containing timestamps (e.g., `## [HH:MM:SS] Topic`).
-- Highlight definitions or formulas with `> [!important]` callouts, and include short bullet lists where the instructor enumerated items.
-- Preserve technical language, examples, and problem statements; paraphrase only for clarity.
-- Finish with a `## Instructor Side Comments` section capturing offhand remarks, logistics, or humor if present. If none, write `- None mentioned.`
+Requirements:
+- Title the document `# Classroom Lesson Narrative`.
+- Start with a `> [!note] Context` callout summarizing the class setting and goals in 2-3 sentences.
+- Present the session chronologically using sections like `## [HH:MM:SS] Topic`. If the topic is unclear, craft a concise descriptive title.
+- Within each section, paraphrase the instructor clearly without omitting examples, equations, or problem statements. Use bullet lists when the speaker enumerates items.
+- Use `> [!important]` callouts for definitions, formulas, or rules exactly as stated.
+- Preserve student questions, instructor answers, and anecdotes (rewrite only for grammar and flow).
+- Conclude with `## Logistics & Side Remarks` capturing reminders, humor, or admin notes. If none exist, write `- None mentioned.`
 
 Transcript:
 {transcript}
 """
 
-COMPANION_PROMPT = """You are Emirhan's battle companion for this course. Using the classroom narrative and transcript, extract actionable guidance.
+COMPANION_PROMPT = """You are Emirhan's nerdy study buddy. Using the transcript and tutor narrative, build a battle plan for exams and projects.
 
-Produce Obsidian markdown with these sections (use them exactly):
+Output format (Obsidian markdown):
 
 ## Mission Control
-- One paragraph summarizing what this class session was really about.
+Friendly paragraph explaining what the class focused on and why it matters for Emirhan.
 
 ## Key Concepts & Definitions
-- Bullet list. Each bullet: **Term** — concise definition. Include timestamps when possible.
+- Bullet list. Format each bullet as `- **Term** — explanation (timestamp)`. Include precise timestamps whenever available. No filler.
 
 ## Assignments, Projects, Exams
-- Use task list `- [ ]` items. Specify deliverables, due dates, submission platforms, partner/individual requirements, grading weight, and any rubrics or hints mentioned. If none were stated, add `- [ ] Confirm: no assignments announced.`
+- Task list using `- [ ]`. For each task mention deliverable, due date/time, submission platform, partner rules, grading weight, and any hints the instructor gave. If nothing was announced, add `- [ ] Confirm: no assignments announced this session.`
 
 ## Study & Revision Checklist
-- Grouped checklists for theory, practice, and admin (three subheadings). Under each, add `- [ ]` items that tell Emirhan exactly what to review, code, or submit. Reference lecture material, textbook sections, or practice problems when mentioned. Add estimated time if implied.
+### Theory
+- [ ] Items that describe what concepts/sections to review, with timestamps or resource pointers.
+### Practice
+- [ ] Coding problems, worksheets, or exercises to work through. Mention estimated effort if implied.
+### Admin
+- [ ] Logistics (sign-ups, emails, materials to download, office hours to attend).
+
+## Exam Intel
+- Bulleted list calling out likely exam or quiz question angles. Explain why each topic is risky based on instructor emphasis. Use `> [!warning]` callouts for high-stakes items.
 
 ## Risk & Follow-ups
-- List potential pitfalls, questions to clarify next class, or campus admin tasks (like office hours, lab sign-ups). Mark anything urgent with `> [!warning]` callouts.
+- Bullet list of open questions, unclear instructions, or things to confirm with the professor/TA. Include relevant deadlines or office hours if mentioned.
 
 ## Next Moves
-- 3 bullet points starting with action verbs (e.g., “Schedule…”, “Email…”, “Prototype…”).
+- Exactly three bullet points starting with action verbs (e.g., "Schedule…", "Email…", "Prototype…") that Emirhan should complete within the next 48 hours.
 
-Inputs you may reference:
-- Classroom Narrative:
+Inputs for context:
+- Tutor Narrative:
 {narrative}
 - Filtered Transcript:
 {transcript}
-- Raw Transcript (use for verification only):
+- Raw Transcript (for verification only):
 {raw_transcript}
 """
+
 
 class LLMSummarizer:
     def __init__(self):
@@ -70,64 +80,38 @@ class LLMSummarizer:
         """Generate summary from transcript"""
         print(f"\n🤖 Generating summary with {self.model}...")
 
-        filtered_transcript = prefilter_transcript(transcript_text)
-
         narrative = self._generate_text(
-            prompt=NARRATIVE_PROMPT.format(transcript=filtered_transcript)
+            prompt=NARRATIVE_PROMPT.format(transcript=transcript_text)
         )
 
         companion = self._generate_text(
             prompt=COMPANION_PROMPT.format(
-                transcript=filtered_transcript,
+                transcript=transcript_text,
                 narrative=narrative,
                 raw_transcript=transcript_text
             )
         )
 
-        frontmatter = self._create_frontmatter(base_name, metadata)
-        date_str = self._extract_date(base_name)
+        course_name = metadata.get('course', 'Unknown') if metadata else 'Unknown'
+        duration = metadata.get('duration', 0) if metadata else 0
+        frontmatter = build_frontmatter(base_name, course_name, duration)
+        date_str = extract_date_fragment(base_name)
 
-        narrative_path = Path(course_folder) / f"Classroom output {date_str}.md"
+        structured_path = Path(course_folder) / f"{date_str}-structured.md"
         companion_path = Path(course_folder) / f"Guide {date_str}.md"
 
-        narrative_path.write_text(f"{frontmatter}\n\n{narrative}")
+        structured_path.write_text(f"{frontmatter}\n\n{narrative}")
         companion_path.write_text(f"{frontmatter}\n\n{companion}")
 
-        print(f"✅ Narrative saved: {narrative_path}")
+        print(f"✅ Structured transcript saved: {structured_path}")
         print(f"✅ Guide saved: {companion_path}")
 
         return {
-            'narrative_path': str(narrative_path),
+            'structured_path': str(structured_path),
             'companion_path': str(companion_path),
-            'narrative': narrative,
+            'structured': narrative,
             'companion': companion
         }
-
-    def _create_frontmatter(self, base_name, metadata):
-        """Create Obsidian frontmatter"""
-        date_parts = base_name.split('-')[0:3]
-        date_str = '-'.join(date_parts) if len(date_parts) == 3 else base_name
-        
-        course = metadata.get('course', 'Unknown') if metadata else 'Unknown'
-        duration = metadata.get('duration', 0) if metadata else 0
-        
-        hours = int(duration // 3600)
-        minutes = int((duration % 3600) // 60)
-        seconds = int(duration % 60)
-        
-        duration_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-        tag_slug = course.lower().replace(' ', '-')
-
-        return f"""---
-date: {date_str}
-course: {course}
-duration: {duration_str}
-tags: [lecture, {tag_slug}]
----"""
-
-    def _extract_date(self, base_name):
-        parts = base_name.split('-')[0:3]
-        return '-'.join(parts) if len(parts) == 3 else base_name
 
     def _generate_text(self, prompt: str) -> str:
         response = self.client.chat.completions.create(

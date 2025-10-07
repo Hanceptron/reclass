@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "test101/Gemini Guide 2025-10-04.md",
-                "mode": "preview",
+                "file": "stanford_ai/stanford_ai-structured.md",
+                "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "Gemini Guide 2025-10-04"
+              "title": "stanford_ai-structured"
             }
           }
         ]
@@ -94,7 +94,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "test101/Gemini Guide 2025-10-04.md",
+                "file": "stanford_ai/stanford_ai-structured.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -104,7 +104,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "Backlinks for Gemini Guide 2025-10-04"
+              "title": "Backlinks for stanford_ai-structured"
             }
           },
           {
@@ -113,12 +113,12 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "test101/Gemini Guide 2025-10-04.md",
+                "file": "stanford_ai/stanford_ai-structured.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "Outgoing links from Gemini Guide 2025-10-04"
+              "title": "Outgoing links from stanford_ai-structured"
             }
           },
           {
@@ -142,13 +142,13 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "test101/Gemini Guide 2025-10-04.md",
+                "file": "stanford_ai/stanford_ai-structured.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "Outline of Gemini Guide 2025-10-04"
+              "title": "Outline of stanford_ai-structured"
             }
           }
         ]
@@ -169,12 +169,31 @@
       "bases:Create new base": false
     }
   },
-  "active": "e37b6fcc077d911e",
+  "active": "db8082735d5b1940",
   "lastOpenFiles": [
+    "stanford_ai/Transcribe stanford_ai.md",
+    "stanford_ai/Classroom output stanford_ai.md",
+    "stanford_ai/Guide stanford_ai.md",
+    "stanford_ai/stanford_ai.m4a",
+    "stanford_ai/stanford_ai-structured.md",
+    "cs50_ai_test/Guide cs50.md",
+    "stanford_ai/stanford_ai_timestamps.json",
+    "stanford_ai/stanford_ai.txt",
+    "stanford_ai/stan.m4a",
+    "stanford_ai/Overview%20Artificial%20Intelligence%20Course%20_%20Stanford%20CS221_%20Learn%20AI%20%28Autumn%202019%29%20[J8Eh7RqggsU] (online-audio-converter.com).m4a",
+    "stanford_ai",
+    "cs50_ai_test/cs50.m4a",
+    "cs50_ai_test/cs50.mp3",
+    "cs50_ai_test/Transcribe cs50.md",
+    "cs50_ai_test/Classroom output cs50.md",
+    "cs50_ai_test/cs50_timestamps.json",
+    "cs50_ai_test/cs50.txt",
+    "gemini_llm_testing_guide.md",
+    "gemini_log.md",
+    "gemini_prompt_update_guide.md",
+    "test101/Gemini Guide 2025-10-04.md",
     "test101/Gemini Classroom output 2025-10-04.md",
     "test101/2025-10-04-AI-course.md",
-    "test101/Gemini Guide 2025-10-04.md",
-    "test101/2025-10-04-AI-course.m4a",
     "test101/Test 1.md"
   ]
 }

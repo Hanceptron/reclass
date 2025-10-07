@@ -23,8 +23,35 @@ FILLER_PATTERNS: Iterable[str] = (
 )
 
 
+def extract_date_fragment(base_name: str) -> str:
+    parts = base_name.split('-')[0:3]
+    return '-'.join(parts) if len(parts) == 3 else base_name
+
+
+def build_frontmatter(base_name: str, course: str, duration_seconds: float) -> str:
+    date_str = extract_date_fragment(base_name)
+    course = course or 'Unknown'
+    duration_seconds = duration_seconds or 0
+
+    hours = int(duration_seconds // 3600)
+    minutes = int((duration_seconds % 3600) // 60)
+    seconds = int(duration_seconds % 60)
+    duration_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+    tag_slug = course.lower().replace(' ', '-')
+
+    return (
+        "---\n"
+        f"date: {date_str}\n"
+        f"course: {course}\n"
+        f"duration: {duration_str}\n"
+        f"tags: [lecture, {tag_slug}]\n"
+        "---"
+    )
+
+
 def prefilter_transcript(text: str) -> str:
-    """Remove conversational filler and high-frequency duplicates before LLM usage."""
+    """Remove conversational filler and obvious repetition before LLM usage."""
     if not text:
         return text
 
@@ -38,15 +65,12 @@ def prefilter_transcript(text: str) -> str:
             continue
 
         lowered = stripped.lower()
-        # Skip obvious filler noise or repeated greetings.
         if any(pattern in lowered for pattern in FILLER_PATTERNS):
             continue
 
-        # Drop very short lines unless they contain numbers (for assignments, dates, etc.).
-        if len(stripped) < 25 and not any(char.isdigit() for char in stripped):
+        if len(stripped) < 12 and not any(char.isdigit() for char in stripped):
             continue
 
-        # Avoid sending the same content repeatedly.
         fingerprint = re.sub(r"\W+", "", lowered)
         if fingerprint in seen:
             continue
