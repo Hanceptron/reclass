@@ -1,0 +1,32 @@
+# Russian-specific configuration
+# This config is used when --ru flag is passed
+
+recording:
+  sample_rate: 48000
+  channels: 1
+  bitrate: '128k'
+  blocksize: 2048
+  
+transcription:
+  model: "whisper-1"
+  language: "ru"  # Force Russian language
+  response_format: "text"
+  temperature: 0
+  
+summarization:
+  # Model for Russian processing AND translation to English
+  russian_model: "anthropic/claude-3.5-sonnet"  # Change this to any Russian-capable model
+  
+  # Model for processing English summaries (after translation)
+  english_model: "anthropic/claude-3.5-haiku"  # Can use different model for English
+  
+  max_tokens: 4000
+  temperature: 0.1
+  
+  # Chunking settings
+  chunk_chars: 6000
+  chunk_overlap_paragraphs: 5
+  
+storage:
+  recordings_dir: "./recordings"
+  temp_dir: "./temp"

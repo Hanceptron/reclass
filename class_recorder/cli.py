@@ -7,7 +7,18 @@ import click
 from .config import config
 from .recorder import AudioRecorder, list_devices
 from .summarizer import LLMSummarizer
+from .summarizer_ru import RussianLLMSummarizer  # ✅ NEW: Import Russian summarizer
 from .transcriber import WhisperTranscriber
+
+
+def load_russian_config():
+    """Load Russian-specific configuration."""
+    from .config import Config
+    import os
+    
+    config_path = os.path.join(os.path.dirname(__file__), '..', 'config_russian.yaml')
+    return Config(config_path)
+
 
 @click.group()
 def cli():
@@ -17,7 +28,8 @@ def cli():
 @cli.command()
 @click.argument('course_folder', type=click.Path())
 @click.option('--device', '-d', type=int, help='Audio device ID')
-def record(course_folder, device):
+@click.option('--ru', is_flag=True, help='Process in Russian with English translation')  # ✅ NEW
+def record(course_folder, device, ru):  # ✅ MODIFIED: Added 'ru' parameter
     """Record a lecture and automatically transcribe + summarize"""
     
     if device is not None:
@@ -31,16 +43,30 @@ def record(course_folder, device):
         
         # Ask if user wants to process now
         if click.confirm('\n🔄 Transcribe and summarize now?', default=True):
+            # ✅ NEW: Load appropriate config for transcription
+            if ru:
+                ru_config = load_russian_config()
+                transcriber = WhisperTranscriber(ru_config)  # Use Russian config
+            else:
+                transcriber = WhisperTranscriber()
+            
             # Transcribe
-            transcriber = WhisperTranscriber()
             trans_result = transcriber.transcribe(
                 result['audio_path'],
                 result['course_folder'],
                 result['base_name']
             )
             
+            # ✅ NEW: Choose summarizer based on language
+            if ru:
+                click.secho("🇷🇺 Processing with Russian system...", fg='cyan')
+                ru_config = load_russian_config()
+                summarizer = RussianLLMSummarizer(ru_config)
+            else:
+                click.secho("🇬🇧 Processing with English system...", fg='cyan')
+                summarizer = LLMSummarizer()
+            
             # Summarize
-            summarizer = LLMSummarizer()
             summarizer.summarize(
                 trans_result['text'],
                 result['course_folder'],
@@ -55,7 +81,8 @@ def record(course_folder, device):
             click.secho("\n✨ All done! Check your Obsidian vault.", fg='green')
         else:
             click.echo(f"\n💾 Audio saved. Process later with:")
-            click.echo(f"   python -m class_recorder process {result['audio_path']}")
+            flag = " --ru" if ru else ""
+            click.echo(f"   recorder process {result['audio_path']}{flag}")
     
     except KeyboardInterrupt:
         click.secho("\n⚠️  Cancelled by user", fg='yellow')
@@ -66,7 +93,8 @@ def record(course_folder, device):
 
 @cli.command()
 @click.argument('audio_file', type=click.Path(exists=True))
-def process(audio_file):
+@click.option('--ru', is_flag=True, help='Process in Russian with English translation')  # ✅ NEW
+def process(audio_file, ru):  # ✅ MODIFIED: Added 'ru' parameter
     """Process an existing audio file (transcribe + summarize)"""
     
     audio_path = Path(audio_file)
@@ -74,16 +102,30 @@ def process(audio_file):
     base_name = audio_path.stem
     
     try:
+        # ✅ NEW: Choose config based on language
+        if ru:
+            ru_config = load_russian_config()
+            transcriber = WhisperTranscriber(ru_config)
+        else:
+            transcriber = WhisperTranscriber()
+        
         # Transcribe
-        transcriber = WhisperTranscriber()
         trans_result = transcriber.transcribe(
             str(audio_path),
             str(course_folder),
             base_name
         )
         
+        # ✅ NEW: Choose summarizer based on language
+        if ru:
+            click.secho("🇷🇺 Processing with Russian system...", fg='cyan')
+            ru_config = load_russian_config()
+            summarizer = RussianLLMSummarizer(ru_config)
+        else:
+            click.secho("🇬🇧 Processing with English system...", fg='cyan')
+            summarizer = LLMSummarizer()
+        
         # Summarize
-        summarizer = LLMSummarizer()
         summarizer.summarize(
             trans_result['text'],
             str(course_folder),
@@ -108,7 +150,8 @@ def devices():
 
 @cli.command()
 @click.argument('audio_file', type=click.Path(exists=True))
-def transcribe_only(audio_file):
+@click.option('--ru', is_flag=True, help='Transcribe in Russian')  # ✅ NEW
+def transcribe_only(audio_file, ru):  # ✅ MODIFIED: Added 'ru' parameter
     """Transcribe audio without summarizing"""
     
     audio_path = Path(audio_file)
@@ -116,7 +159,13 @@ def transcribe_only(audio_file):
     base_name = audio_path.stem
     
     try:
-        transcriber = WhisperTranscriber()
+        # ✅ NEW: Choose config based on language
+        if ru:
+            ru_config = load_russian_config()
+            transcriber = WhisperTranscriber(ru_config)
+        else:
+            transcriber = WhisperTranscriber()
+        
         transcriber.transcribe(
             str(audio_path),
             str(course_folder),
@@ -130,7 +179,8 @@ def transcribe_only(audio_file):
 
 @cli.command()
 @click.argument('transcript_file', type=click.Path(exists=True))
-def summarize_only(transcript_file):
+@click.option('--ru', is_flag=True, help='Process in Russian with English translation')  # ✅ NEW
+def summarize_only(transcript_file, ru):  # ✅ MODIFIED: Added 'ru' parameter
     """Summarize an existing transcript"""
     
     transcript_path = Path(transcript_file)
@@ -141,7 +191,15 @@ def summarize_only(transcript_file):
         with open(transcript_path) as f:
             transcript_text = f.read()
         
-        summarizer = LLMSummarizer()
+        # ✅ NEW: Choose summarizer based on language
+        if ru:
+            click.secho("🇷🇺 Processing with Russian system...", fg='cyan')
+            ru_config = load_russian_config()
+            summarizer = RussianLLMSummarizer(ru_config)
+        else:
+            click.secho("🇬🇧 Processing with English system...", fg='cyan')
+            summarizer = LLMSummarizer()
+        
         summarizer.summarize(
             transcript_text,
             str(course_folder),

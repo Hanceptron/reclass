@@ -15,20 +15,33 @@ class WhisperTranscriber:
     # Whisper API limit: 25MB, but leave buffer for safety
     MAX_FILE_SIZE_MB = 20  # More conservative limit
     
-    def __init__(self):
-        self.client = OpenAI(api_key=config.openai_api_key)
-        self.model = config.get('transcription.model', 'whisper-1')
-        self.language = config.get('transcription.language')
-        self.response_format = config.get('transcription.response_format', 'verbose_json')
-        self.temperature = config.get('transcription.temperature', 0)
-        self.sample_rate = config.get('recording.sample_rate', 16000)
-        self.preprocess_audio = config.get('transcription.preprocess_audio', False)
-        self.highpass_hz = config.get('transcription.highpass_hz', 100)
-        self.loudnorm_enabled = config.get('transcription.loudnorm', True)
-        self.loudnorm_settings = config.get(
+    def __init__(self, custom_config=None):
+        """
+        Initialize transcriber with optional custom config.
+        
+        Args:
+            custom_config: Optional Config object (e.g., Russian config).
+                          If None, uses default global config.
+        """
+        # Use custom config if provided, otherwise use global config
+        active_config = custom_config if custom_config is not None else config
+        
+        self.client = OpenAI(api_key=active_config.openai_api_key)
+        self.model = active_config.get('transcription.model', 'whisper-1')
+        self.language = active_config.get('transcription.language')
+        self.response_format = active_config.get('transcription.response_format', 'verbose_json')
+        self.temperature = active_config.get('transcription.temperature', 0)
+        self.sample_rate = active_config.get('recording.sample_rate', 16000)
+        self.preprocess_audio = active_config.get('transcription.preprocess_audio', False)
+        self.highpass_hz = active_config.get('transcription.highpass_hz', 100)
+        self.loudnorm_enabled = active_config.get('transcription.loudnorm', True)
+        self.loudnorm_settings = active_config.get(
             'transcription.loudnorm_settings',
             'I=-23:LRA=7:TP=-2'
         )
+        
+        # Store reference to config for use in other methods
+        self.config = active_config
     
     @retry(
         stop=stop_after_attempt(3),
@@ -142,7 +155,7 @@ class WhisperTranscriber:
     
     def _transcribe_chunked_with_overlap(self, audio_path, course_folder, base_name, actual_duration):
         """Improved chunking with overlap to not miss content."""
-        temp_dir = Path(config.get('storage.temp_dir', './temp'))
+        temp_dir = Path(self.config.get('storage.temp_dir', './temp'))
         temp_dir.mkdir(exist_ok=True)
         
         # Create overlapping chunks
@@ -374,7 +387,7 @@ class WhisperTranscriber:
         if not self.preprocess_audio:
             return None
 
-        temp_dir = Path(config.get('storage.temp_dir', './temp'))
+        temp_dir = Path(self.config.get('storage.temp_dir', './temp'))
         temp_dir.mkdir(parents=True, exist_ok=True)
 
         output_path = temp_dir / f"preprocessed_{audio_path.stem}.wav"
