@@ -13,12 +13,13 @@ transcription:
   temperature: 0  # deterministic output
   
 summarization:
-  model: "google/gemini-2.5-flash"
+  model: "anthropic/claude-3.5-haiku"  # Changed from gemini to claude haiku
   max_tokens: 4000
   temperature: 0.1
 
-  chunk_chars: 8000
-  chunk_overlap_paragraphs: 2
+  # Chunking settings - UPDATED for better context preservation
+  chunk_chars: 6000  # Reduced from 8000 for more manageable chunks
+  chunk_overlap_paragraphs: 5  # Increased from 2 to 5 for better context overlap
   
 storage:
   recordings_dir: "./recordings"

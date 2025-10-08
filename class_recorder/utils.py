@@ -81,39 +81,127 @@ def prefilter_transcript(text: str) -> str:
     return "\n".join(cleaned) if cleaned else text
 
 
-def chunk_text(text: str, max_chars: int, overlap_paragraphs: int = 0) -> List[str]:
-    """Split text into paragraph-preserving chunks."""
-    if max_chars <= 0:
-        return [text]
-
-    paragraphs = [para.strip() for para in text.split('\n\n') if para.strip()]
-    if not paragraphs:
-        return [text.strip()]
-
+def _chunk_by_units(units: List[str], max_chars: int, overlap_units: int, join_with: str = '\n\n') -> List[str]:
+    """
+    Generic chunking for any text units (paragraphs or sentences).
+    
+    Args:
+        units: List of text units to chunk (paragraphs, sentences, etc.)
+        max_chars: Maximum characters per chunk
+        overlap_units: Number of units to overlap between chunks
+        join_with: String to join units with ('\n\n' for paragraphs, ' ' for sentences)
+    
+    Returns:
+        List of text chunks with overlap
+    """
+    if not units:
+        return []
+    
     chunks: List[str] = []
     current: List[str] = []
     current_len = 0
 
-    def paragraph_length(paragraph: str) -> int:
-        return len(paragraph) + 2  # account for separator
-
-    for paragraph in paragraphs:
-        para_len = paragraph_length(paragraph)
-        if current and current_len + para_len > max_chars:
-            chunks.append('\n\n'.join(current))
-            if overlap_paragraphs > 0:
-                current = current[-overlap_paragraphs:]
-                current_len = sum(paragraph_length(p) for p in current)
+    for unit in units:
+        unit_len = len(unit) + len(join_with)  # Account for separator
+        
+        # If adding this unit exceeds max_chars and we have content, finalize chunk
+        if current and current_len + unit_len > max_chars:
+            chunks.append(join_with.join(current))
+            
+            # Keep last N units for overlap
+            if overlap_units > 0 and len(current) > overlap_units:
+                current = current[-overlap_units:]
+                current_len = sum(len(p) + len(join_with) for p in current)
             else:
                 current = []
                 current_len = 0
-        current.append(paragraph)
-        current_len += para_len
+        
+        current.append(unit)
+        current_len += unit_len
 
+    # Add remaining content
     if current:
-        chunks.append('\n\n'.join(current))
+        chunks.append(join_with.join(current))
 
     return chunks
+
+
+def chunk_text(text: str, max_chars: int, overlap_paragraphs: int = 0) -> List[str]:
+    """
+    Split text into chunks with intelligent handling.
+    
+    Strategy:
+    1. First try splitting by paragraphs (\n\n)
+    2. If only 1 long paragraph exists, split by sentences instead
+    3. Maintain overlap between chunks for context preservation
+    
+    Args:
+        text: Input text to chunk
+        max_chars: Maximum characters per chunk
+        overlap_paragraphs: Number of units (paragraphs or sentences) to overlap
+    
+    Returns:
+        List of text chunks
+    """
+    if max_chars <= 0 or not text:
+        return [text]
+
+    # Try paragraph splitting first
+    paragraphs = [para.strip() for para in text.split('\n\n') if para.strip()]
+    
+    # Case 1: No paragraphs found (empty text)
+    if not paragraphs:
+        return [text.strip()]
+    
+    # Case 2: Single long paragraph - split by sentences
+    if len(paragraphs) == 1 and len(paragraphs[0]) > max_chars:
+        print(f"📝 Single long paragraph detected ({len(paragraphs[0])} chars), splitting by sentences...")
+        
+        # Split by sentence endings (., !, ?)
+        sentences = re.split(r'(?<=[.!?])\s+', text)
+        sentences = [s.strip() for s in sentences if s.strip()]
+        
+        if not sentences:
+            return [text]
+        
+        print(f"   Found {len(sentences)} sentences, creating chunks with {overlap_paragraphs} sentence overlap")
+        return _chunk_by_units(sentences, max_chars, overlap_paragraphs, join_with=' ')
+    
+    # Case 3: Multiple paragraphs - use paragraph chunking
+    print(f"📝 Found {len(paragraphs)} paragraphs, creating chunks with {overlap_paragraphs} paragraph overlap")
+    return _chunk_by_units(paragraphs, max_chars, overlap_paragraphs, join_with='\n\n')
+
+
+def preview_chunks(text: str, max_chars: int, overlap_units: int = 5):
+    """
+    Preview how text would be chunked without actually processing.
+    Useful for debugging and verification.
+    
+    Args:
+        text: Text to preview
+        max_chars: Max characters per chunk
+        overlap_units: Number of overlap units
+    """
+    chunks = chunk_text(text, max_chars, overlap_units)
+    
+    print(f"\n{'='*60}")
+    print(f"📊 CHUNK PREVIEW")
+    print(f"{'='*60}")
+    print(f"Total text length: {len(text):,} characters")
+    print(f"Max chunk size: {max_chars:,} characters")
+    print(f"Overlap units: {overlap_units}")
+    print(f"Total chunks: {len(chunks)}")
+    print(f"{'='*60}\n")
+    
+    for i, chunk in enumerate(chunks, 1):
+        # Get first and last 150 chars for preview
+        start_preview = chunk[:150].replace('\n', ' ').strip()
+        end_preview = chunk[-150:].replace('\n', ' ').strip()
+        
+        print(f"--- Chunk {i}/{len(chunks)} ({len(chunk):,} chars) ---")
+        print(f"Starts: {start_preview}...")
+        print(f"Ends:   ...{end_preview}")
+        print()
 
 
 def clean_transcript_text(text: str, max_repeat_lines: int = 3) -> str:

@@ -152,11 +152,10 @@ class LLMSummarizer:
     def _generate_structured_chunks(self, raw_transcript_text, cleaned_transcript_text):
         raw_chunks = chunk_text(raw_transcript_text, self.chunk_chars, self.chunk_overlap)
         
-        # Debug: print chunk sizes
-        print(f"🔍 DEBUG: Created {len(raw_chunks)} chunks from {len(raw_transcript_text)} chars")
-        for i, chunk in enumerate(raw_chunks):
-            print(f"   Chunk {i+1}: {len(chunk)} chars")
-        # End Debug
+        # DEBUG OUTPUT - Shows exactly what's being chunked
+        print(f"🔍 Created {len(raw_chunks)} chunks from {len(raw_transcript_text):,} characters")
+        for idx, chunk in enumerate(raw_chunks, 1):
+            print(f"   Chunk {idx}: {len(chunk):,} chars")
         
         cleaned_chunks = []
         structured_chunks = []
@@ -167,6 +166,8 @@ class LLMSummarizer:
             return structured_chunks, raw_chunks, cleaned_chunks
 
         for idx, raw_chunk in enumerate(raw_chunks, start=1):
+            print(f"🔄 Processing structured chunk {idx}/{total}...")
+            
             cleaned_chunk = clean_transcript_text(raw_chunk)
             cleaned_chunks.append(cleaned_chunk)
 
@@ -208,6 +209,8 @@ class LLMSummarizer:
         for idx, (structured_chunk, cleaned_chunk, raw_chunk) in enumerate(
             zip(structured_chunks, cleaned_chunks, raw_chunks), start=1
         ):
+            print(f"🔄 Processing guide chunk {idx}/{total}...")
+            
             prompt = GUIDE_CHUNK_PROMPT.format(
                 chunk_index=idx,
                 total_chunks=total,
@@ -264,6 +267,8 @@ class LLMSummarizer:
         for idx, (structured_chunk, cleaned_chunk, raw_chunk) in enumerate(
             zip(structured_chunks, cleaned_chunks, raw_chunks), start=1
         ):
+            print(f"🔄 Processing professor chunk {idx}/{total}...")
+            
             prior_topics = "; ".join(recent_headings[-5:]) if recent_headings else "None yet."
             prompt = PROFESSOR_CHUNK_PROMPT.format(
                 chunk_index=idx,

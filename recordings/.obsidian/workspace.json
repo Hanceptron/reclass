@@ -136,13 +136,12 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "Finance/Professor 2025-10-07.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "Outline of Professor 2025-10-07"
+              "title": "Outline"
             }
           }
         ]
@@ -163,43 +162,43 @@
       "bases:Create new base": false
     }
   },
-  "active": "e37b6fcc077d911e",
+  "active": "db8082735d5b1940",
   "lastOpenFiles": [
+    "cs50/cs50.m4a",
+    "cs50",
+    "Finance/old/Finance3/Transcript-2025-10-07.md",
+    "Finance/old/Finance3/Transcript-2025-10-07-clean.md",
+    "Finance/old/Finance3/Professor 2025-10-07.md",
+    "Finance/old/Finance3/Guide 2025-10-07.md",
+    "Finance/old/Finance3/2025-10-07-structured.md",
+    "Finance/old/Finance3/2025-10-07-fintech-2_timestamps.json",
+    "Finance/old/Finance3/2025-10-07-fintech-2_clean.txt",
+    "Finance/old/Finance3/2025-10-07-fintech-2.txt",
+    "Finance/old/Finance3/2025-10-07-fintech-2.m4a",
+    "Finance/old/Finance3",
+    "Finance2/Transcript-2025-10-07-clean.md",
+    "Finance/Finance2/Transcript-2025-10-07.md",
+    "Finance/Finance2/Transcript-2025-10-07-clean.md",
+    "Finance/Finance2/Professor 2025-10-07.md",
+    "Finance/Finance2/Guide 2025-10-07.md",
+    "Finance/Finance2/2025-10-07-structured.md",
+    "Finance/Finance2/2025-10-07-fintech_2_timestamps.json",
+    "Finance/Finance2/2025-10-07-fintech_2_clean.txt",
+    "Finance/Finance2/2025-10-07-fintech_2.txt",
+    "Finance/Finance2/2025-10-07-fintech_2.m4a",
+    "Finance2/Transcript-2025-10-07.md",
+    "Finance2/Professor 2025-10-07.md",
+    "Finance2/Guide 2025-10-07.md",
+    "Finance2/2025-10-07-structured.md",
+    "Finance/2025-10-07-structured.md",
     "Finance/Professor 2025-10-07.md",
     "Finance/Guide 2025-10-07.md",
-    "Finance/2025-10-07-structured.md",
     "Finance/old/Transcript-2025-10-07.md",
     "Finance/old/Transcript-2025-10-07-clean.md",
     "Finance/old/Professor 2025-10-07.md",
     "Finance/old/Guide 2025-10-07.md",
     "Finance/old/2025-10-07-structured.md",
-    "Finance/old",
     "Finance/Transcript-2025-10-07.md",
-    "Finance/Transcript-2025-10-07-clean.md",
-    "Finance2/Transcript-2025-10-07-clean.md",
-    "Finance2/Transcript-2025-10-07.md",
-    "Finance3/Professor 2025-10-07.md",
-    "Finance3/Guide 2025-10-07.md",
-    "Finance3/2025-10-07-structured.md",
-    "Finance3/Transcript-2025-10-07-clean.md",
-    "Finance3/Transcript-2025-10-07.md",
-    "Finance3/2025-10-07-fintech-2_timestamps.json",
-    "Finance3/2025-10-07-fintech-2_clean.txt",
-    "Finance3/2025-10-07-fintech-2.txt",
-    "Finance3/2025-10-07-fintech-2.m4a",
-    "Finance3",
-    "Finance2/Professor 2025-10-07.md",
-    "Finance2/Guide 2025-10-07.md",
-    "Finance2/2025-10-07-structured.md",
-    "Finance2/2025-10-07-fintech_2_timestamps.json",
-    "Finance2/2025-10-07-fintech_2_clean.txt",
-    "Finance2/2025-10-07-fintech_2.txt",
-    "Finance2/2025-10-07-fintech_2.m4a",
-    "101/Transcript-2025-10-07.md",
-    "logs/stanford_ai/Transcript-stanford_ai-clean.md",
-    "logs/stanford_ai/Transcript-stanford_ai.md",
-    "101/2025-10-07-notes.md",
-    "101/2025-10-07-guide.md",
-    "cs50_ai_test/cs50-notes.md"
+    "Finance/Transcript-2025-10-07-clean.md"
   ]
 }
