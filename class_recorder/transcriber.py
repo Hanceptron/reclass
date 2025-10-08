@@ -9,7 +9,7 @@ from openai import OpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from .config import config
-from .utils import build_frontmatter, extract_date_fragment
+from .utils import build_frontmatter, clean_transcript_text, extract_date_fragment
 
 class WhisperTranscriber:
     # Whisper API limit: 25MB, but leave buffer for safety
@@ -21,6 +21,14 @@ class WhisperTranscriber:
         self.language = config.get('transcription.language')
         self.response_format = config.get('transcription.response_format', 'verbose_json')
         self.temperature = config.get('transcription.temperature', 0)
+        self.sample_rate = config.get('recording.sample_rate', 16000)
+        self.preprocess_audio = config.get('transcription.preprocess_audio', False)
+        self.highpass_hz = config.get('transcription.highpass_hz', 100)
+        self.loudnorm_enabled = config.get('transcription.loudnorm', True)
+        self.loudnorm_settings = config.get(
+            'transcription.loudnorm_settings',
+            'I=-23:LRA=7:TP=-2'
+        )
     
     @retry(
         stop=stop_after_attempt(3),
@@ -29,32 +37,44 @@ class WhisperTranscriber:
     def transcribe(self, audio_path, course_folder, base_name):
         """Transcribe audio file with verification of complete processing."""
         audio_path = Path(audio_path)
-        file_size_mb = audio_path.stat().st_size / (1024 * 1024)
+        original_size_mb = audio_path.stat().st_size / (1024 * 1024)
         
         print(f"\n🎯 Transcribing with Whisper API...")
-        print(f"📊 File size: {file_size_mb:.1f} MB")
+        print(f"📊 Original file size: {original_size_mb:.1f} MB")
         
         # Calculate file hash for verification
         file_hash = self._calculate_file_hash(audio_path)
         print(f"🔐 File hash: {file_hash[:8]}...")
-        
-        # Get actual duration for verification
-        actual_duration = self._probe_duration(audio_path)
-        print(f"⏱️ Audio duration: {actual_duration:.1f} seconds")
-        
+
+        original_duration = self._probe_duration(audio_path)
+
+        # Optional audio preprocessing for better ASR accuracy
+        prepared_audio = self._prepare_audio_for_transcription(audio_path)
+        working_path = prepared_audio or audio_path
+        working_size_mb = working_path.stat().st_size / (1024 * 1024)
+        actual_duration = self._probe_duration(working_path)
+
+        if prepared_audio:
+            print(f"📊 Working file size after preprocessing: {working_size_mb:.1f} MB")
+        print(f"⏱️ Audio duration used for ASR: {actual_duration:.1f} seconds")
+
         # Transcribe based on size
-        if file_size_mb > self.MAX_FILE_SIZE_MB:
+        if working_size_mb > self.MAX_FILE_SIZE_MB:
             print(f"📦 File exceeds {self.MAX_FILE_SIZE_MB}MB - using smart chunking")
             result = self._transcribe_chunked_with_overlap(
-                audio_path, course_folder, base_name, actual_duration
+                working_path, course_folder, base_name, actual_duration
             )
         else:
             result = self._transcribe_single(
-                audio_path, course_folder, base_name, actual_duration
+                working_path, course_folder, base_name, actual_duration
             )
         
         # Verify completeness
         self._verify_transcription(result, actual_duration)
+        
+        # Clean up temp audio if created
+        if prepared_audio and prepared_audio.exists():
+            prepared_audio.unlink(missing_ok=True)
         
         return result
     
@@ -85,9 +105,9 @@ class WhisperTranscriber:
         
         # Save files
         transcript_path = Path(course_folder) / f"{base_name}.txt"
+        cleaned_txt_path = Path(course_folder) / f"{base_name}_clean.txt"
         json_path = Path(course_folder) / f"{base_name}_timestamps.json"
-        
-        # Save with metadata
+
         metadata = {
             'text': text,
             'segments': segments,
@@ -95,20 +115,26 @@ class WhisperTranscriber:
             'word_count': len(text.split()),
             'language': self.language or 'auto-detected'
         }
-        
+
         transcript_path.write_text(text)
+        cleaned_text = clean_transcript_text(text)
+        cleaned_txt_path.write_text(cleaned_text)
+
         with open(json_path, 'w') as f:
             json.dump(metadata, f, indent=2)
-        
-        self._write_markdown_transcript(course_folder, base_name, text, duration)
-        
+
+        self._write_markdown_transcripts(course_folder, base_name, text, cleaned_text, duration)
+
         print(f"💾 Saved transcript: {transcript_path}")
+        print(f"💾 Saved clean transcript: {cleaned_txt_path}")
         print(f"💾 Saved timestamps: {json_path}")
         
         return {
             'transcript_path': str(transcript_path),
+            'clean_transcript_path': str(cleaned_txt_path),
             'json_path': str(json_path),
             'text': text,
+            'clean_text': cleaned_text,
             'duration': duration,
             'segments': segments,
             'word_count': len(text.split())
@@ -189,8 +215,9 @@ class WhisperTranscriber:
         
         # Save results
         transcript_path = Path(course_folder) / f"{base_name}.txt"
+        cleaned_txt_path = Path(course_folder) / f"{base_name}_clean.txt"
         json_path = Path(course_folder) / f"{base_name}_timestamps.json"
-        
+
         metadata = {
             'text': full_text,
             'segments': all_segments,
@@ -200,20 +227,26 @@ class WhisperTranscriber:
             'word_count': len(full_text.split()),
             'chunks_processed': len(chunks)
         }
-        
+
         transcript_path.write_text(full_text)
+        cleaned_text = clean_transcript_text(full_text)
+        cleaned_txt_path.write_text(cleaned_text)
+
         with open(json_path, 'w') as f:
             json.dump(metadata, f, indent=2)
-        
-        self._write_markdown_transcript(course_folder, base_name, full_text, actual_duration)
-        
+
+        self._write_markdown_transcripts(course_folder, base_name, full_text, cleaned_text, actual_duration)
+
         print(f"✅ Combined transcript saved: {transcript_path}")
+        print(f"✅ Clean transcript saved: {cleaned_txt_path}")
         print(f"📝 Total words: {len(full_text.split())}")
         
         return {
             'transcript_path': str(transcript_path),
+            'clean_transcript_path': str(cleaned_txt_path),
             'json_path': str(json_path),
             'text': full_text,
+            'clean_text': cleaned_text,
             'duration': actual_duration,
             'segments': all_segments,
             'word_count': len(full_text.split()),
@@ -335,26 +368,62 @@ class WhisperTranscriber:
         ]
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         return float(result.stdout.strip())
-    
-    def _write_markdown_transcript(self, course_folder, base_name, text, duration):
-        """Write markdown version of transcript."""
+
+    def _prepare_audio_for_transcription(self, audio_path: Path):
+        """Optionally apply high-pass filtering and loudness normalization."""
+        if not self.preprocess_audio:
+            return None
+
+        temp_dir = Path(config.get('storage.temp_dir', './temp'))
+        temp_dir.mkdir(parents=True, exist_ok=True)
+
+        output_path = temp_dir / f"preprocessed_{audio_path.stem}.wav"
+
+        filters = []
+        if self.highpass_hz:
+            filters.append(f"highpass=f={self.highpass_hz}")
+        if self.loudnorm_enabled:
+            filters.append(f"loudnorm={self.loudnorm_settings}")
+
+        cmd = ['ffmpeg', '-y', '-i', str(audio_path)]
+        if filters:
+            cmd += ['-af', ','.join(filters)]
+        cmd += ['-ar', str(self.sample_rate), '-ac', '1', str(output_path)]
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            message = result.stderr.splitlines()[0] if result.stderr else 'unknown error'
+            print(f"⚠️ Audio preprocessing failed: {message}")
+            output_path.unlink(missing_ok=True)
+            return None
+
+        print(
+            f"🔧 Audio preprocessing applied (high-pass {self.highpass_hz}Hz, "
+            f"loudnorm {'enabled' if self.loudnorm_enabled else 'disabled'})"
+        )
+        return output_path
+
+    def _write_markdown_transcripts(self, course_folder, base_name, raw_text, cleaned_text, duration):
+        """Write both raw and cleaned markdown transcripts."""
         course_name = Path(course_folder).name
         frontmatter = build_frontmatter(base_name, course_name, duration)
         date_fragment = extract_date_fragment(base_name)
-        
-        # Add word count and reading time to markdown
-        word_count = len(text.split())
-        reading_time = word_count / 200  # Average reading speed
-        
-        content = f"{frontmatter}\n\n"
-        content += f"*Words: {word_count} | Reading time: {reading_time:.0f} min*\n\n"
-        content += "---\n\n"
-        content += text
-        
-        transcript_md_path = Path(course_folder) / f"Transcript-{date_fragment}.md"
-        transcript_md_path.write_text(content)
-        
-        return transcript_md_path
+
+        def _compose_markdown(content_text: str) -> str:
+            word_count = len(content_text.split())
+            reading_time = max(1, round(word_count / 200)) if word_count else 0
+            header = f"{frontmatter}\n\n"
+            header += f"*Words: {word_count} | Reading time: {reading_time} min*\n\n"
+            header += "---\n\n"
+            return header + content_text
+
+        raw_md_path = Path(course_folder) / f"Transcript-{date_fragment}.md"
+        clean_md_path = Path(course_folder) / f"Transcript-{date_fragment}-clean.md"
+
+        raw_md_path.write_text(_compose_markdown(raw_text))
+        clean_md_path.write_text(_compose_markdown(cleaned_text))
+
+        return raw_md_path, clean_md_path
     
     def _extract_text(self, response):
         """Extract text from response object."""

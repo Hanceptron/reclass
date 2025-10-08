@@ -1,89 +1,88 @@
-"""LLM summarization with improved accuracy and minimal hallucination"""
+"""LLM summarization using OpenRouter with cleaned + raw transcript context."""
 import json
 from collections import OrderedDict
 from pathlib import Path
-import re
 
 from openai import OpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from .config import config
-from .utils import build_frontmatter, chunk_text, extract_date_fragment
+from .utils import (
+    build_frontmatter,
+    chunk_text,
+    clean_transcript_text,
+    extract_date_fragment,
+)
 
-# Improved prompts with strict anti-hallucination instructions
-NARRATIVE_CHUNK_PROMPT = '''You are transcribing lecture chunk {chunk_index}/{total_chunks}.
+NARRATIVE_CHUNK_PROMPT = '''You are Emirhan's private tutor rewriting lecture chunk {chunk_index}/{total_chunks}.
 
-CRITICAL RULES:
-1. ONLY use information explicitly stated in the transcript
-2. NEVER add information not present in the transcript
-3. If something is unclear, mark it as [unclear] rather than guessing
-4. Preserve ALL technical terms, formulas, and numbers exactly as stated
-5. Include timestamp markers when mentioned
+Use the CLEANED chunk for wording, but cross-check with the RAW chunk to preserve every fact.
 
-Previous topics covered: {prior_topics}
+Cleaned transcript chunk:
+"""{cleaned_chunk}"""
 
+Raw transcript chunk (reference only):
+"""{raw_chunk}"""
+
+Previous section headings: {prior_topics}
 {context_instruction}
 
-Format requirements:
-- Use ## headings for major topics
-- Use > [!important] for key definitions/formulas
-- Use bullet points for lists
-- Include ALL examples and problems mentioned
-- Mark unclear audio as [unclear] or [inaudible]
+Rules:
+- Preserve chronological order within this chunk.
+- Use `## [HH:MM:SS] Topic` style headings when timestamps or cues are present; otherwise craft descriptive headings.
+- Highlight definitions/formulas with `> [!important]` callouts.
+- Keep examples, problem statements, and Q&A intact.
+- If audio is unclear, write `[unclear audio]` rather than guessing.
+- Do not repeat material already covered in earlier chunks.
 
-TRANSCRIPT CHUNK:
-"""{chunk_text}"""
+Return only Markdown for this chunk.'''
 
-Output only the markdown notes for this chunk.'''
+GUIDE_CHUNK_PROMPT = '''You are Emirhan's nerdy study buddy. Build actionable notes from chunk {chunk_index}/{total_chunks}.
 
-GUIDE_CHUNK_PROMPT = '''Extract ONLY factual information from this transcript chunk {chunk_index}/{total_chunks}.
+Inputs:
+- Structured narrative chunk:
+"""{structured_chunk}"""
+- Cleaned transcript chunk:
+"""{cleaned_chunk}"""
+- Raw transcript chunk (reference):
+"""{raw_chunk}"""
 
-STRICT RULES:
-1. Extract ONLY what is explicitly stated
-2. NO speculation or inference beyond what's said
-3. Use empty array [] if nothing found for a category
-4. Use exact terminology from the transcript
-
-YOU MUST RESPOND WITH ONLY THIS JSON STRUCTURE - NO OTHER TEXT:
+Respond with JSON (no markdown fencing, no extra text):
 {{
-  "topics_covered": [],
+  "mission_control": [],
   "key_concepts": [],
   "assignments": [],
-  "formulas": [],
-  "examples": [],
-  "important_dates": [],
-  "questions_asked": [],
-  "next_class": []
+  "study_theory": [],
+  "study_practice": [],
+  "study_admin": [],
+  "exam_intel": [],
+  "risk_followups": [],
+  "next_moves": []
 }}
 
-DO NOT include any text before or after the JSON.
-DO NOT wrap the JSON in markdown code blocks.
-DO NOT add comments or explanations.
-ONLY output the JSON object.
+Rules:
+- Only include facts explicitly stated.
+- Use `term — explanation (timestamp)` for key concepts when timestamps exist.
+- Use `- [ ] ...` for assignments/study items, and `- ...` for next moves.
+- Return empty arrays when a category has no content.
+'''
 
-TRANSCRIPT:
-"""{chunk_text}"""'''
+PROFESSOR_CHUNK_PROMPT = '''You are Emirhan's friendly professor delivering a one-on-one recap for chunk {chunk_index}/{total_chunks}.
 
-VERIFICATION_PROMPT = '''Review this summary for accuracy against the original transcript.
+Use the structured notes plus the cleaned/raw transcript for accuracy.
 
-ORIGINAL TRANSCRIPT:
-"""{original}"""
+Structured chunk:
+"""{structured_chunk}"""
 
-GENERATED SUMMARY:
-"""{summary}"""
+Cleaned transcript chunk:
+"""{cleaned_chunk}"""
 
-Check for:
-1. Any information in the summary NOT present in the transcript (hallucination)
-2. Any important information from transcript missing in summary
-3. Any misrepresented facts or numbers
+Raw transcript chunk (reference):
+"""{raw_chunk}"""
 
-Return JSON:
-{{
-  "has_hallucination": true/false,
-  "missing_important_info": [],
-  "corrections_needed": [],
-  "accuracy_score": 0-100
-}}'''
+Previously covered topics: {prior_topics}
+
+Explain the material conversationally, highlight intuition and transitions, and end with a reflective question or quick self-check when appropriate. Output Markdown with a heading `## Segment {chunk_index}`.'''
 
 
 class LLMSummarizer:
@@ -92,7 +91,7 @@ class LLMSummarizer:
             base_url="https://openrouter.ai/api/v1",
             api_key=config.openrouter_api_key
         )
-        self.model = config.get('summarization.model', 'google/gemini-2.0-flash-exp')
+        self.model = config.get('summarization.model', 'anthropic/claude-3.5-haiku')
         self.max_tokens = config.get('summarization.max_tokens', 4000)
         self.temperature = config.get('summarization.temperature', 0.1)
         self.chunk_chars = int(config.get('summarization.chunk_chars', 8000))
@@ -102,340 +101,186 @@ class LLMSummarizer:
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=4, max=60)
     )
-    def summarize(self, transcript_text, course_folder, base_name, metadata=None):
-        """Generate accurate summaries with verification."""
+    def summarize(self, raw_transcript_text, course_folder, base_name, metadata=None, cleaned_transcript_text=None):
+        """Generate structured notes, action guide, and professor recap."""
         print(f"\n🤖 Generating summary with {self.model}...")
-        print(f"📊 Transcript length: {len(transcript_text)} characters")
-        
-        # Pre-process transcript to clean it up
-        transcript_text = self._preprocess_transcript(transcript_text)
-        
-        # Generate chunks with better overlap
-        chunks = self._create_smart_chunks(transcript_text)
-        print(f"📦 Split into {len(chunks)} chunks for processing")
-        
-        # Process chunks
-        structured_notes = self._generate_structured_notes(chunks)
-        study_guide = self._generate_study_guide(chunks)
-        
-        # Verify for hallucinations
-        print("🔍 Verifying accuracy...")
-        structured_notes = self._verify_and_correct(transcript_text, structured_notes)
-        
-        # Prepare metadata
+
+        raw_transcript_text = raw_transcript_text or ""
+        cleaned_transcript_text = cleaned_transcript_text or clean_transcript_text(raw_transcript_text)
+
+        structured_chunks, raw_chunks, cleaned_chunks = self._generate_structured_chunks(
+            raw_transcript_text,
+            cleaned_transcript_text
+        )
+        structured_body = "\n\n".join(chunk for chunk in structured_chunks if chunk).strip()
+
+        guide_body = self._generate_guide(structured_chunks, cleaned_chunks, raw_chunks)
+        professor_body = self._generate_professor(structured_chunks, cleaned_chunks, raw_chunks)
+
         course_name = metadata.get('course', 'Unknown') if metadata else 'Unknown'
         duration = metadata.get('duration', 0) if metadata else 0
         frontmatter = build_frontmatter(base_name, course_name, duration)
         date_str = extract_date_fragment(base_name)
-        
-        # Save files
-        structured_path = Path(course_folder) / f"{date_str}-notes.md"
-        guide_path = Path(course_folder) / f"{date_str}-guide.md"
-        
-        # Add verification stats to the notes
-        stats = self._calculate_coverage_stats(transcript_text, structured_notes)
-        
-        structured_content = f"{frontmatter}\n\n"
-        structured_content += f"*Coverage: {stats['coverage_percent']:.1f}% of transcript processed*\n\n"
-        structured_content += structured_notes
-        
-        guide_content = f"{frontmatter}\n\n{study_guide}"
-        
-        structured_path.write_text(structured_content)
-        guide_path.write_text(guide_content)
-        
-        print(f"✅ Structured notes saved: {structured_path}")
-        print(f"✅ Study guide saved: {guide_path}")
-        print(f"📈 Coverage: {stats['coverage_percent']:.1f}% of content captured")
-        
+
+        structured_path = Path(course_folder) / f"{date_str}-structured.md"
+        guide_path = Path(course_folder) / f"Guide {date_str}.md"
+        professor_path = Path(course_folder) / f"Professor {date_str}.md"
+
+        structured_path.write_text(self._compose_document(frontmatter, structured_body))
+        guide_path.write_text(self._compose_document(frontmatter, guide_body))
+        professor_path.write_text(self._compose_document(frontmatter, professor_body))
+
+        print(f"✅ Structured transcript saved: {structured_path}")
+        print(f"✅ Guide saved: {guide_path}")
+        print(f"✅ Professor recap saved: {professor_path}")
+
         return {
             'structured_path': str(structured_path),
             'guide_path': str(guide_path),
-            'coverage_stats': stats
+            'professor_path': str(professor_path),
+            'structured': structured_body,
+            'guide': guide_body,
+            'professor': professor_body
         }
-    
-    def _preprocess_transcript(self, text):
-        """Clean up transcript before processing."""
-        # Remove multiple spaces
-        text = re.sub(r'\s+', ' ', text)
+
+    def _compose_document(self, frontmatter: str, body: str) -> str:
+        body = body.strip()
+        if not body:
+            body = "*(No content generated.)*"
+        return f"{frontmatter}\n\n{body}\n"
+
+    def _generate_structured_chunks(self, raw_transcript_text, cleaned_transcript_text):
+        raw_chunks = chunk_text(raw_transcript_text, self.chunk_chars, self.chunk_overlap)
         
-        # Fix common transcription errors
-        replacements = {
-            ' gonna ': ' going to ',
-            ' wanna ': ' want to ',
-            ' gotta ': ' got to ',
-            ' kinda ': ' kind of ',
-            ' sorta ': ' sort of ',
-        }
-        for old, new in replacements.items():
-            text = text.replace(old, new)
+        # Debug: print chunk sizes
+        print(f"🔍 DEBUG: Created {len(raw_chunks)} chunks from {len(raw_transcript_text)} chars")
+        for i, chunk in enumerate(raw_chunks):
+            print(f"   Chunk {i+1}: {len(chunk)} chars")
+        # End Debug
         
-        # Mark unclear sections
-        text = re.sub(r'\[inaudible\]', '[UNCLEAR]', text, flags=re.IGNORECASE)
-        
-        return text.strip()
-    
-    def _create_smart_chunks(self, text):
-        """Create chunks that preserve sentence boundaries."""
-        # Split by sentences first
-        sentences = re.split(r'(?<=[.!?])\s+', text)
-        
-        chunks = []
-        current_chunk = []
-        current_size = 0
-        
-        for sentence in sentences:
-            sentence_size = len(sentence)
-            
-            # If adding this sentence exceeds limit, save current chunk
-            if current_size + sentence_size > self.chunk_chars and current_chunk:
-                chunks.append(' '.join(current_chunk))
-                # Keep last few sentences for context
-                overlap_sentences = current_chunk[-3:] if len(current_chunk) > 3 else []
-                current_chunk = overlap_sentences
-                current_size = sum(len(s) for s in overlap_sentences)
-            
-            current_chunk.append(sentence)
-            current_size += sentence_size
-        
-        # Don't forget the last chunk
-        if current_chunk:
-            chunks.append(' '.join(current_chunk))
-        
-        return chunks
-    
-    def _generate_structured_notes(self, chunks):
-        """Generate structured notes from chunks."""
-        all_notes = []
-        prior_topics = []
-        
-        for idx, chunk in enumerate(chunks, 1):
-            print(f"  Processing chunk {idx}/{len(chunks)}...")
-            
-            context = "Start with # Lecture Notes" if idx == 1 else "Continue with new sections"
-            prior = "\n".join(prior_topics[-5:]) if prior_topics else "None"
-            
+        cleaned_chunks = []
+        structured_chunks = []
+        recent_headings = []
+
+        total = len(raw_chunks)
+        if total == 0:
+            return structured_chunks, raw_chunks, cleaned_chunks
+
+        for idx, raw_chunk in enumerate(raw_chunks, start=1):
+            cleaned_chunk = clean_transcript_text(raw_chunk)
+            cleaned_chunks.append(cleaned_chunk)
+
+            prior_topics = "\n".join(recent_headings[-5:]) if recent_headings else "None yet."
+            context_instruction = (
+                "First chunk: start with `# Classroom Lesson Narrative` and a `> [!note] Context` callout summarizing the lecture goals before other sections."
+                if idx == 1 else
+                "Continue with new `##` sections only; do NOT repeat the top-level header or context callout."
+            )
             prompt = NARRATIVE_CHUNK_PROMPT.format(
                 chunk_index=idx,
-                total_chunks=len(chunks),
-                prior_topics=prior,
-                context_instruction=context,
-                chunk_text=chunk
+                total_chunks=total,
+                prior_topics=prior_topics,
+                context_instruction=context_instruction,
+                cleaned_chunk=cleaned_chunk,
+                raw_chunk=raw_chunk
             )
-            
             response = self._generate_text(prompt)
-            all_notes.append(response)
-            
-            # Extract topics for context
-            topics = re.findall(r'^##\s+(.+)$', response, re.MULTILINE)
-            prior_topics.extend(topics)
-        
-        return "\n\n".join(all_notes)
-    
-    def _generate_study_guide(self, chunks):
-        """Generate study guide from chunks."""
-        all_data = {
-            "topics_covered": [],
-            "key_concepts": [],
-            "assignments": [],
-            "formulas": [],
-            "examples": [],
-            "important_dates": [],
-            "questions_asked": [],
-            "next_class": []
-        }
-        
-        for idx, chunk in enumerate(chunks, 1):
+            structured_chunk = response.strip()
+            structured_chunks.append(structured_chunk)
+            recent_headings.extend(self._extract_headings(structured_chunk))
+
+        return structured_chunks, raw_chunks, cleaned_chunks
+
+    def _generate_guide(self, structured_chunks, cleaned_chunks, raw_chunks):
+        aggregate = OrderedDict(
+            mission_control=[],
+            key_concepts=[],
+            assignments=[],
+            study_theory=[],
+            study_practice=[],
+            study_admin=[],
+            exam_intel=[],
+            risk_followups=[],
+            next_moves=[],
+        )
+
+        total = len(structured_chunks)
+        for idx, (structured_chunk, cleaned_chunk, raw_chunk) in enumerate(
+            zip(structured_chunks, cleaned_chunks, raw_chunks), start=1
+        ):
             prompt = GUIDE_CHUNK_PROMPT.format(
                 chunk_index=idx,
-                total_chunks=len(chunks),
-                chunk_text=chunk
+                total_chunks=total,
+                structured_chunk=structured_chunk,
+                cleaned_chunk=cleaned_chunk,
+                raw_chunk=raw_chunk
             )
-            
             response = self._generate_text(prompt)
-            
-            # More robust JSON parsing
-            chunk_data = self._parse_json_response(response)
-            
-            if chunk_data:
-                for key in all_data:
-                    items = chunk_data.get(key, [])
-                    # Filter out empty or "NOT MENTIONED" items
-                    if items and isinstance(items, list):
-                        valid_items = [item for item in items 
-                                     if item and item != "NOT MENTIONED" and item != ""]
-                        all_data[key].extend(valid_items)
-            else:
-                print(f"  ⚠️ Failed to parse JSON for chunk {idx}")
-                # Try to extract at least basic info from the text
-                if "assignment" in chunk.lower() or "homework" in chunk.lower():
-                    all_data["assignments"].append(f"[Check chunk {idx} for assignment details]")
-        
-        # Remove duplicates while preserving order
-        for key in all_data:
-            all_data[key] = list(dict.fromkeys(all_data[key]))
-        
-        # Format as markdown
-        guide = "# Study Guide\n\n"
-        
-        if all_data["topics_covered"]:
-            guide += "## Topics Covered\n"
-            for topic in all_data["topics_covered"]:
-                guide += f"- {topic}\n"
-            guide += "\n"
-        
-        if all_data["key_concepts"]:
-            guide += "## Key Concepts\n"
-            for concept in all_data["key_concepts"]:
-                guide += f"- {concept}\n"
-            guide += "\n"
-        
-        if all_data["formulas"]:
-            guide += "## Formulas\n"
-            for formula in all_data["formulas"]:
-                guide += f"- `{formula}`\n"
-            guide += "\n"
-        
-        if all_data["assignments"]:
-            guide += "## Assignments & Deadlines\n"
-            for assignment in all_data["assignments"]:
-                guide += f"- [ ] {assignment}\n"
-            guide += "\n"
-        
-        if all_data["important_dates"]:
-            guide += "## Important Dates\n"
-            for date in all_data["important_dates"]:
-                guide += f"- 📅 {date}\n"
-            guide += "\n"
-        
-        # Add a note if parsing had issues
-        if not any(all_data.values()):
-            guide += "*Note: Study guide extraction had issues. Please review the structured notes for complete information.*\n"
-        
-        return guide
-    
-    def _parse_json_response(self, response):
-        """Robust JSON parsing that handles various LLM response formats."""
-        if not response:
-            return None
-        
-        # Clean the response
-        response = response.strip()
-        
-        # Try direct parsing first
-        try:
-            return json.loads(response)
-        except json.JSONDecodeError:
-            pass
-        
-        # Try to extract JSON from markdown code blocks
-        import re
-        json_pattern = r'```(?:json)?\s*([\s\S]*?)```'
-        matches = re.findall(json_pattern, response)
-        if matches:
-            try:
-                return json.loads(matches[0])
-            except json.JSONDecodeError:
-                pass
-        
-        # Try to find JSON object in the text
-        try:
-            # Find the first { and last }
-            start = response.index('{')
-            # Find matching closing brace
-            count = 0
-            end = start
-            for i in range(start, len(response)):
-                if response[i] == '{':
-                    count += 1
-                elif response[i] == '}':
-                    count -= 1
-                    if count == 0:
-                        end = i
-                        break
-            
-            if end > start:
-                json_str = response[start:end+1]
-                return json.loads(json_str)
-        except (ValueError, json.JSONDecodeError):
-            pass
-        
-        # Last resort: try to construct from text patterns
-        try:
-            result = {
-                "topics_covered": [],
-                "key_concepts": [],
-                "assignments": [],
-                "formulas": [],
-                "examples": [],
-                "important_dates": [],
-                "questions_asked": [],
-                "next_class": []
-            }
-            
-            # Look for common patterns in the response
-            lines = response.split('\n')
-            current_category = None
-            
-            for line in lines:
-                line = line.strip()
-                if not line:
-                    continue
-                
-                # Check if this line matches a category
-                for key in result.keys():
-                    if key.replace('_', ' ') in line.lower():
-                        current_category = key
-                        break
-                
-                # If we have a category and this looks like an item
-                if current_category and (line.startswith('-') or line.startswith('*') or line.startswith('•')):
-                    item = line.lstrip('-*• ').strip()
-                    if item and item not in ['[]', 'NOT MENTIONED', '']:
-                        result[current_category].append(item)
-            
-            # Only return if we found something
-            if any(result.values()):
-                return result
-                
-        except Exception:
-            pass
-        
-        return None
-    
-    def _verify_and_correct(self, original, summary):
-        """Verify summary against original to prevent hallucination."""
-        # For now, simple verification - can be enhanced
-        # Check if all numbers in summary exist in original
-        summary_numbers = re.findall(r'\b\d+\b', summary)
-        original_numbers = set(re.findall(r'\b\d+\b', original))
-        
-        for num in summary_numbers:
-            if num not in original_numbers and len(num) > 2:
-                print(f"  ⚠️ Potential hallucination: number {num} not in original")
-                summary = summary.replace(num, "[NUMBER]")
-        
-        return summary
-    
-    def _calculate_coverage_stats(self, original, summary):
-        """Calculate how much of the original was captured."""
-        # Extract key terms from both
-        original_words = set(re.findall(r'\b[A-Z][a-z]+\b|\b\w{6,}\b', original))
-        summary_words = set(re.findall(r'\b[A-Z][a-z]+\b|\b\w{6,}\b', summary))
-        
-        if not original_words:
-            coverage = 0
-        else:
-            coverage = len(original_words & summary_words) / len(original_words) * 100
-        
-        return {
-            'coverage_percent': coverage,
-            'original_terms': len(original_words),
-            'captured_terms': len(original_words & summary_words)
-        }
-    
+            chunk_data = self._parse_guide_json(response)
+            for key in aggregate:
+                self._extend_unique(aggregate[key], chunk_data.get(key, []))
+
+        if not aggregate['assignments']:
+            aggregate['assignments'].append('- [ ] Confirm: no assignments announced this session.')
+        if not aggregate['mission_control']:
+            aggregate['mission_control'].append('No additional summary beyond structured notes.')
+
+        aggregate['next_moves'] = aggregate['next_moves'][:3]
+
+        lines = []
+        lines.append('## Mission Control')
+        lines.append("\n".join(aggregate['mission_control']).strip())
+
+        lines.append('\n## Key Concepts & Definitions')
+        lines.extend(self._ensure_bullets(aggregate['key_concepts']))
+
+        lines.append('\n## Assignments, Projects, Exams')
+        lines.extend(self._ensure_checkboxes(aggregate['assignments']))
+
+        lines.append('\n## Study & Revision Checklist')
+        lines.append('### Theory')
+        lines.extend(self._ensure_checkboxes(aggregate['study_theory']))
+        lines.append('\n### Practice')
+        lines.extend(self._ensure_checkboxes(aggregate['study_practice']))
+        lines.append('\n### Admin')
+        lines.extend(self._ensure_checkboxes(aggregate['study_admin']))
+
+        lines.append('\n## Exam Intel')
+        lines.extend(self._ensure_bullets(aggregate['exam_intel']))
+
+        lines.append('\n## Risk & Follow-ups')
+        lines.extend(self._ensure_bullets(aggregate['risk_followups']))
+
+        lines.append('\n## Next Moves')
+        lines.extend(self._ensure_bullets(aggregate['next_moves']))
+
+        return "\n".join(line for line in lines if line is not None)
+
+    def _generate_professor(self, structured_chunks, cleaned_chunks, raw_chunks):
+        outputs = []
+        recent_headings = []
+        total = len(structured_chunks)
+
+        for idx, (structured_chunk, cleaned_chunk, raw_chunk) in enumerate(
+            zip(structured_chunks, cleaned_chunks, raw_chunks), start=1
+        ):
+            prior_topics = "; ".join(recent_headings[-5:]) if recent_headings else "None yet."
+            prompt = PROFESSOR_CHUNK_PROMPT.format(
+                chunk_index=idx,
+                total_chunks=total,
+                prior_topics=prior_topics,
+                structured_chunk=structured_chunk,
+                cleaned_chunk=cleaned_chunk,
+                raw_chunk=raw_chunk
+            )
+            response = self._generate_text(prompt)
+            recap = response.strip()
+            outputs.append(recap)
+            recent_headings.extend(self._extract_headings(recap))
+
+        return "\n\n".join(output for output in outputs if output)
+
     def _generate_text(self, prompt: str) -> str:
-        """Generate text with the LLM."""
         response = self.client.chat.completions.create(
             model=self.model,
             messages=[{"role": "user", "content": prompt}],
@@ -443,3 +288,60 @@ class LLMSummarizer:
             temperature=self.temperature
         )
         return response.choices[0].message.content
+
+    def _extract_headings(self, markdown: str):
+        headings = []
+        if not markdown:
+            return headings
+        for line in markdown.splitlines():
+            clean = line.strip()
+            if clean.startswith('##'):
+                headings.append(clean.lstrip('#').strip())
+        return headings
+
+    def _parse_guide_json(self, response: str):
+        if not response:
+            return {}
+        try:
+            return json.loads(response)
+        except json.JSONDecodeError:
+            try:
+                start = response.index('{')
+                end = response.rindex('}') + 1
+                return json.loads(response[start:end])
+            except (ValueError, json.JSONDecodeError):
+                return {}
+
+    def _extend_unique(self, target_list, items):
+        if not items:
+            return
+        for item in items:
+            cleaned = item.strip()
+            if cleaned and cleaned not in target_list:
+                target_list.append(cleaned)
+
+    def _ensure_bullets(self, items):
+        if not items:
+            return ['- None recorded.']
+        bullets = []
+        for item in items:
+            line = item.strip()
+            if not line:
+                continue
+            if not line.startswith('-') and not line.startswith('>'):
+                line = f"- {line}"
+            bullets.append(line)
+        return bullets or ['- None recorded.']
+
+    def _ensure_checkboxes(self, items):
+        if not items:
+            return ['- [ ] None recorded.']
+        boxes = []
+        for item in items:
+            line = item.strip()
+            if not line:
+                continue
+            if not line.startswith('- ['):
+                line = f"- [ ] {line.lstrip('-').strip()}"
+            boxes.append(line)
+        return boxes or ['- [ ] None recorded.']

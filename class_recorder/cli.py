@@ -48,7 +48,8 @@ def record(course_folder, device):
                 metadata={
                     'course': Path(course_folder).name,
                     'duration': result['duration']
-                }
+                },
+                cleaned_transcript_text=trans_result.get('clean_text')
             )
             
             click.secho("\n✨ All done! Check your Obsidian vault.", fg='green')
@@ -90,7 +91,8 @@ def process(audio_file):
             metadata={
                 'course': course_folder.name,
                 'duration': trans_result.get('duration', 0)
-            }
+            },
+            cleaned_transcript_text=trans_result.get('clean_text')
         )
         
         click.secho("\n✨ Processing complete!", fg='green')

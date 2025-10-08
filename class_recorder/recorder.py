@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 from datetime import datetime
 import queue
+import shutil
 import subprocess
 import time
 
@@ -109,10 +110,28 @@ class AudioRecorder:
             final_m4a.parent.mkdir(parents=True, exist_ok=True)
             
             print(f"\n🔄 Converting to M4A...")
-            self._convert_to_m4a(temp_wav, final_m4a)
-            
-            # Clean up temp WAV
-            temp_wav.unlink()
+            try:
+                self._convert_to_m4a(temp_wav, final_m4a)
+            except Exception as convert_err:
+                rescue_path = Path(course_folder) / f"{base_name}_raw.wav"
+                try:
+                    shutil.move(temp_wav, rescue_path)
+                except Exception as rescue_err:
+                    print(
+                        f"⚠️ Failed to move raw WAV to safety: {rescue_err}",
+                        file=sys.stderr
+                    )
+                else:
+                    print(
+                        f"⚠️ Conversion failed. Raw WAV preserved at {rescue_path}",
+                        file=sys.stderr
+                    )
+                raise RuntimeError(
+                    f"Conversion to M4A failed: {convert_err}"
+                ) from convert_err
+            else:
+                # Clean up temp WAV only after successful conversion
+                temp_wav.unlink()
             
             m4a_size = final_m4a.stat().st_size / (1024 * 1024)
             print(f"✅ Saved: {final_m4a}")

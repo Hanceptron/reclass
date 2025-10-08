@@ -11,6 +11,10 @@ transcription:
   language: "en"  # or null for auto-detect
   response_format: "text"  # for timestamps
   temperature: 0  # deterministic output
+  preprocess_audio: true
+  highpass_hz: 100
+  loudnorm: true
+  loudnorm_settings: "I=-23:LRA=7:TP=-2"
   
 summarization:
   model: "anthropic/claude-3.5-haiku"
